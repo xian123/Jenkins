@@ -1,0 +1,314 @@
+
+
+def FIO_1Disk = FIO_1Disk
+def FIO_12Disks = FIO_12Disks
+
+def SIO_1Disk = SIO_1Disk
+def SIO_12Disks = SIO_12Disks
+
+def KQ_Perf = KQ_Perf
+
+def SpecifiedFreebsdARMImage = "${env.SpecifiedFreebsdARMImage}"
+def location = "eastus2"
+def SecretsFilePath = "C:/DoNotDelete/secretsFile.xml"
+def AllFreebsdARMImages = ['MicrosoftOSTC FreeBSD 11.1 11.1.20180112', 
+					   'MicrosoftOSTC FreeBSD 11.0 11.0.20180112', 
+					   'MicrosoftOSTC FreeBSD 10.4 10.4.20180117', 
+					   'MicrosoftOSTC FreeBSD 10.3 10.3.20180111']
+
+
+					   
+					   
+def RunPowershellCommand(psCmd) {
+    bat "powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$psCmd;EXIT \$global:LastExitCode\""
+    // println "${psCmd}"
+}
+
+
+pipeline
+{
+    agent {
+        node {
+          label 'azurebsd'
+        }
+    }
+	
+
+	
+	stages{	
+	
+		stage ('Storage Performance Of FIO x1 disk')
+		{
+			 steps 
+            {
+				script {
+					try{
+					    if ( "${FIO_1Disk}" == 'true' )
+						{						
+							if( SpecifiedFreebsdARMImage )
+							{
+								println "The test is only for the specified image: ${SpecifiedFreebsdARMImage}"
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdfiosingledisk'" +
+									" -testCycle 'PERF-FIO-SingleDisk'" +
+									" -ARMImageName '${SpecifiedFreebsdARMImage}'" +
+									" -StorageAccount 'ExistingStorage_Premium'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
+									)
+							}
+							else
+							{						
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								for (int i = 0; i < AllFreebsdARMImages.size(); i++) {
+									println "The current test image: ${AllFreebsdARMImages[i]}"
+								
+									RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdfiosingledisk'" +
+									" -testCycle 'PERF-FIO-SingleDisk'" +
+									" -ARMImageName '${AllFreebsdARMImages[i]}'" +
+									" -StorageAccount 'ExistingStorage_Premium'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
+									)		
+									
+								}
+							}						
+						}
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		stage ('Storage Performance Of FIO x12 disks')
+		{
+			 steps 
+            {
+				script {
+					try{
+						if ( "${FIO_12Disks}" == 'true' )
+						{
+							if( SpecifiedFreebsdARMImage )
+							{
+								println "The test is only for the specified image: ${SpecifiedFreebsdARMImage}"
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdfioraid0'" +
+									" -testCycle 'PERF-FIO-RAID0'" +
+									" -ARMImageName '${SpecifiedFreebsdARMImage}'" +
+									" -StorageAccount 'ExistingStorage_Premium'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
+									)
+							}
+							else
+							{						
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								for (int i = 0; i < AllFreebsdARMImages.size(); i++) {
+									println "The current test image: ${AllFreebsdARMImages[i]}"
+								
+									RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdfioraid0'" +
+									" -testCycle 'PERF-FIO-RAID0'" +
+									" -ARMImageName '${AllFreebsdARMImages[i]}'" +
+									" -StorageAccount 'ExistingStorage_Premium'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
+									)		
+									
+								}
+							}						
+						}
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		stage ('Storage Performance Of SIO x1 disk')
+		{
+			 steps 
+            {
+				script {
+					try{
+						if ( "${SIO_1Disk}" == 'true' )
+						{
+							if( SpecifiedFreebsdARMImage )
+							{
+								println "The test is only for the specified image: ${SpecifiedFreebsdARMImage}"
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdSiosingledisk'" +
+									" -testCycle 'PERF-SIO-SingleDisk'" +
+									" -ARMImageName '${SpecifiedFreebsdARMImage}'" +
+									" -StorageAccount 'ExistingStorage_Premium'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
+									)
+							}
+							else
+							{						
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								for (int i = 0; i < AllFreebsdARMImages.size(); i++) {
+									println "The current test image: ${AllFreebsdARMImages[i]}"
+								
+									RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdSiosingledisk'" +
+									" -testCycle 'PERF-SIO-SingleDisk'" +
+									" -ARMImageName '${AllFreebsdARMImages[i]}'" +
+									" -StorageAccount 'ExistingStorage_Premium'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
+									)		
+									
+								}
+							}
+						}						
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		stage ('Storage Performance Of SIO x12 disks')
+		{
+			 steps 
+            {
+				script {
+					try{
+						if ( "${SIO_12Disks}" == 'true' )
+						{
+							if( SpecifiedFreebsdARMImage )
+							{
+								println "The test is only for the specified image: ${SpecifiedFreebsdARMImage}"
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdsioraid0'" +
+									" -testCycle 'PERF-SIO-RAID0'" +
+									" -ARMImageName '${SpecifiedFreebsdARMImage}'" +
+									" -StorageAccount 'ExistingStorage_Premium'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
+									)
+							}
+							else
+							{						
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								for (int i = 0; i < AllFreebsdARMImages.size(); i++) {
+									println "The current test image: ${AllFreebsdARMImages[i]}"
+								
+									RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdsioraid0'" +
+									" -testCycle 'PERF-SIO-RAID0'" +
+									" -ARMImageName '${AllFreebsdARMImages[i]}'" +
+									" -StorageAccount 'ExistingStorage_Premium'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
+									)		
+									
+								}
+							}	
+						}						
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		
+		stage ('Network Performance Of KQ')
+		{
+			 steps 
+            {
+				script {
+					try{
+						if ( "${KQ_Perf}" == 'true' )
+						{
+							if( SpecifiedFreebsdARMImage )
+							{
+								println "The test is only for the specified image: ${SpecifiedFreebsdARMImage}"
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdkqperf'" +
+									" -testCycle 'PERF-KQ'" +
+									" -ARMImageName '${SpecifiedFreebsdARMImage}'" +
+									" -StorageAccount 'ExistingStorage_Standard'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_KQ'"
+									)
+							}
+							else
+							{						
+								git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+								for (int i = 0; i < AllFreebsdARMImages.size(); i++) {
+									println "The current test image: ${AllFreebsdARMImages[i]}"
+								
+									RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdkqperf'" +
+									" -testCycle 'PERF-KQ'" +
+									" -ARMImageName '${AllFreebsdARMImages[i]}'" +
+									" -StorageAccount 'ExistingStorage_Standard'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"  +
+									" -ResultDBTable 'Perf_FreeBSD_Azure_KQ'"
+									)		
+									
+								}
+							}	
+						}						
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		
+	}
+
+	//Post #TODO
+  
+}
+
+
+
