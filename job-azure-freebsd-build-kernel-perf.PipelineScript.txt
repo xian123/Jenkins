@@ -1,0 +1,317 @@
+
+import java.text.SimpleDateFormat
+
+//def SpecifiedFreebsdARMImage = "${env.SpecifiedFreebsdARMImage}"
+def SpecifiedFreebsdARMImage = "MicrosoftOSTC FreeBSD 11.1 11.1.20180112"
+
+
+def osVHD = "${env.OsVHD}"
+def location = "${env.location}"
+def isBuildKernelSuccess = ""
+def SecretsFilePath = "C:/DoNotDelete/secretsFile.xml"
+			   
+					   
+def RunPowershellCommand(psCmd) {
+	println "${psCmd}"
+    bat "powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$psCmd;EXIT \$global:LastExitCode\""
+}
+
+
+pipeline
+{
+	parameters {
+		booleanParam(defaultValue: true, description: 'BUILD KERNEL.', name: 'BUILD_KERNEL')
+		string(defaultValue: '', description: 'The vhd name in azure', name: 'OsVHD')
+		booleanParam(defaultValue: false, description: 'Fio single disk test.', name: 'FIO_1Disk')
+		booleanParam(defaultValue: true, description: 'Fio x12 disks (RAID0) test.', name: 'FIO_12Disks')
+		booleanParam(defaultValue: false, description: 'Sio single disk test.', name: 'SIO_1Disk')
+		booleanParam(defaultValue: false, description: 'Sio x12 disks (RAID0) test.', name: 'SIO_12Disks')
+		booleanParam(defaultValue: false, description: 'KQ perf test.', name: 'KQ_Perf')
+		choice(choices: 'disabled\nenabled\nboth', description: 'Provide SRIOV state for tests: enabled, disabled or both.', name: 'sriov')
+		choice(choices: 'eastus2\naustraliaeast\nsoutheastasia\nwestcentralus\neastus', description: 'Data center location.', name: 'location')
+    }
+
+    agent {
+        node {
+          label 'azurebsd'
+        }
+    }
+	
+
+	
+	stages{	
+		stage('Build kernel dependencies') {
+            when {
+                expression { env.BUILD_KERNEL.contains('true') }
+            }
+			
+			steps 
+            {
+				script {
+					try{
+						if( !osVHD )
+						{
+							def dateFormat = new SimpleDateFormat("yyyyMMddHHmmss")
+							def date = new Date()
+							if( SpecifiedFreebsdARMImage.contains('10.3') )
+							{
+								osVHD = "FreeBSD103_" + dateFormat.format(date) + ".vhd"
+							}
+							
+							if( SpecifiedFreebsdARMImage.contains('10.4') )
+							{
+								osVHD = "FreeBSD104_" + dateFormat.format(date) + ".vhd"
+							}
+					
+							if( SpecifiedFreebsdARMImage.contains('11.0') )
+							{
+								osVHD = "FreeBSD110_" + dateFormat.format(date) + ".vhd"
+							}
+					
+							if( SpecifiedFreebsdARMImage.contains('11.1') )
+							{
+								osVHD = "FreeBSD111_" + dateFormat.format(date) + ".vhd"
+							}
+					
+					
+							println "The osVHD: ${osVHD}"
+						}
+					
+	
+						if( SpecifiedFreebsdARMImage )
+						{
+							println "The os vhd is based on the image: ${SpecifiedFreebsdARMImage}"
+							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+							RunPowershellCommand(".\\RunAzureTests.ps1" +
+								" -testLocation '${location}'" +
+								" -DistroIdentifier 'buildkernel'" +
+								" -testCycle 'BUILD-KERNEL'" +
+								" -ARMImageName '${SpecifiedFreebsdARMImage}'" +
+								" -StorageAccount 'ExistingStorage_Standard'" +
+								" -destBlobName '${osVHD}'" +
+								" -customSecretsFilePath '${SecretsFilePath}'" 
+								)
+							
+							isBuildKernelSuccess = "True"
+						}
+						else
+						{						
+					         //TODO
+					    }
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		stage('FIO_1Disk dependencies') {
+            when {
+                expression { env.FIO_1Disk.contains('true') }
+            }
+			
+			steps 
+            {
+				script {
+					try{
+						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						{
+							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+							RunPowershellCommand(".\\RunAzureTests.ps1" +
+								" -testLocation '${location}'" +
+								" -DistroIdentifier 'bsdfiosingledisk'" +
+								" -testCycle 'PERF-FIO-SingleDisk'" +
+								" -OsVHD '${osVHD}'" +
+								" -StorageAccount 'ExistingStorage_Premium'" +
+								" -customSecretsFilePath '${SecretsFilePath}'"  +
+								" -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
+								)
+						}
+						else
+						{
+							println "Build kernel failed, so skip the test."
+						}						
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		
+		stage('FIO_12Disks dependencies') {
+            when {
+                expression { env.FIO_12Disks.contains('true') }
+            }
+			
+			steps 
+            {
+				script {
+					try{
+						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						{
+							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+							RunPowershellCommand(".\\RunAzureTests.ps1" +
+								" -testLocation '${location}'" +
+								" -DistroIdentifier 'bsdfioraid0'" +
+								" -testCycle 'PERF-FIO-RAID0'" +
+								" -OsVHD '${osVHD}'" +
+								" -StorageAccount 'ExistingStorage_Premium'" +
+								" -customSecretsFilePath '${SecretsFilePath}'"  +
+								" -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
+								)
+						}
+						else
+						{
+							println "Build kernel failed, so skip the test."
+						}	
+					
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		stage('SIO_1Disk dependencies') {
+            when {
+                expression { env.SIO_1Disk.contains('true') }
+            }
+			
+			steps 
+            {
+				script {
+					try{
+						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						{
+							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+							RunPowershellCommand(".\\RunAzureTests.ps1" +
+								" -testLocation '${location}'" +
+								" -DistroIdentifier 'bsdSiosingledisk'" +
+								" -testCycle 'PERF-SIO-SingleDisk'" +
+								" -OsVHD '${osVHD}'" +
+								" -StorageAccount 'ExistingStorage_Premium'" +
+								" -customSecretsFilePath '${SecretsFilePath}'"  +
+								" -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
+								)
+						}
+						else
+						{
+							println "Build kernel failed, so skip the test."
+						}	
+				
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		stage('SIO_12Disks dependencies') {
+            when {
+                expression { env.SIO_12Disks.contains('true') }
+            }
+			
+			steps 
+            {
+				script {
+					try{
+						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						{
+							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+							RunPowershellCommand(".\\RunAzureTests.ps1" +
+								" -testLocation '${location}'" +
+								" -DistroIdentifier 'bsdsioraid0'" +
+								" -testCycle 'PERF-SIO-RAID0'" +
+								" -OsVHD '${osVHD}'" +
+								" -StorageAccount 'ExistingStorage_Premium'" +
+								" -customSecretsFilePath '${SecretsFilePath}'"  +
+								" -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
+								)
+						}
+						else
+						{
+							println "Build kernel failed, so skip the test."
+						}	
+			
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		
+		stage('KQ_Perf dependencies') {
+            when {
+                expression { env.KQ_Perf.contains('true') }
+            }
+			
+			steps 
+            {
+				script {
+					try{
+						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						{
+							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+							RunPowershellCommand(".\\RunAzureTests.ps1" +
+								" -testLocation '${location}'" +
+								" -DistroIdentifier 'bsdkqperf'" +
+								" -testCycle 'PERF-KQ'" +
+								" -OsVHD '${osVHD}'" +
+								" -StorageAccount 'ExistingStorage_Standard'" +
+								" -customSecretsFilePath '${SecretsFilePath}'"  +
+								" -ResultDBTable 'Perf_FreeBSD_Azure_KQ'"
+								)
+						}
+						else
+						{
+							println "Build kernel failed, so skip the test."
+						}	
+						
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		
+	}
+
+	//Post #TODO
+  
+}
+
+
+
