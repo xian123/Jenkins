@@ -1,11 +1,14 @@
 
+
+
 import java.text.SimpleDateFormat
 
 //def SpecifiedFreebsdARMImage = "${env.SpecifiedFreebsdARMImage}"
-def SpecifiedFreebsdARMImage = "MicrosoftOSTC FreeBSD 11.1 11.1.20180112"
+def SpecifiedFreebsdARMImage = "MicrosoftOSTC FreeBSD 11.1 latest"
 
 
 def osVHD = "${env.OsVHD}"
+//def testCycle = "${env.TestCycle}"
 def location = "${env.location}"
 def isBuildKernelSuccess = ""
 def SecretsFilePath = "C:/DoNotDelete/secretsFile.xml"
@@ -22,6 +25,7 @@ pipeline
 	parameters {
 		booleanParam(defaultValue: true, description: 'BUILD KERNEL.', name: 'BUILD_KERNEL')
 		string(defaultValue: '', description: 'The vhd name in azure', name: 'OsVHD')
+		string(defaultValue: '', description: 'The test cycle name of functional test.', name: 'TestCycle')
 		booleanParam(defaultValue: false, description: 'Fio single disk test.', name: 'FIO_1Disk')
 		booleanParam(defaultValue: true, description: 'Fio x12 disks (RAID0) test.', name: 'FIO_12Disks')
 		booleanParam(defaultValue: false, description: 'Sio single disk test.', name: 'SIO_1Disk')
@@ -134,7 +138,7 @@ pipeline
 						}
 						else
 						{
-							println "Build kernel failed, so skip the test."
+							println "Build kernel failed or OsVHD not found, so skip the test."
 						}						
 					}
 					catch (exc)
@@ -173,7 +177,7 @@ pipeline
 						}
 						else
 						{
-							println "Build kernel failed, so skip the test."
+							println "Build kernel failed or OsVHD not found, so skip the test."
 						}	
 					
 					}
@@ -212,7 +216,7 @@ pipeline
 						}
 						else
 						{
-							println "Build kernel failed, so skip the test."
+							println "Build kernel failed or OsVHD not found, so skip the test."
 						}	
 				
 					}
@@ -251,7 +255,7 @@ pipeline
 						}
 						else
 						{
-							println "Build kernel failed, so skip the test."
+							println "Build kernel failed or OsVHD not found, so skip the test."
 						}	
 			
 					}
@@ -276,22 +280,47 @@ pipeline
             {
 				script {
 					try{
+					    List<String>networkGroups = new ArrayList<String>()
+					    if( env.sriov.contains('disable')  ) 
+					    {
+							networkGroups.add('Synthetic')
+					    }
+					   
+					    if( env.sriov.contains('enabled')  ) 
+					    {
+							networkGroups.add('Sriov')
+					    }
+					   
+					    if( env.sriov.contains('both')  ) 
+						{
+							networkGroups.add('Synthetic')
+							networkGroups.add('Sriov')
+					    }
+					
 						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
 						{
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
-							RunPowershellCommand(".\\RunAzureTests.ps1" +
-								" -testLocation '${location}'" +
-								" -DistroIdentifier 'bsdkqperf'" +
-								" -testCycle 'PERF-KQ'" +
-								" -OsVHD '${osVHD}'" +
-								" -StorageAccount 'ExistingStorage_Standard'" +
-								" -customSecretsFilePath '${SecretsFilePath}'"  +
-								" -ResultDBTable 'Perf_FreeBSD_Azure_KQ'"
-								)
+								
+							for (int i = 0; i < networkGroups.size(); i++) {
+								$cmd =  ".\\RunAzureTests.ps1"
+								$cmd += " -testLocation '${location}'"
+								$cmd += " -DistroIdentifier 'bsdkqperf'"
+								$cmd += " -testCycle 'PERF-KQ'"
+								$cmd += " -OsVHD '${osVHD}'"
+								$cmd += " -StorageAccount 'ExistingStorage_Standard'"
+								$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
+								$cmd += " -ResultDBTable 'Perf_FreeBSD_Azure_KQ'"
+								
+								if(networkGroups[i] == 'Sriov' )
+								{
+									$cmd += " -EnableAcceleratedNetworking"
+								}
+								RunPowershellCommand($cmd)
+							}
 						}
 						else
 						{
-							println "Build kernel failed, so skip the test."
+							println "Build kernel failed or OsVHD not found, so skip the test."
 						}	
 						
 					}
@@ -306,6 +335,48 @@ pipeline
 		
 		}
 		
+		
+		stage('Function dependencies') {
+            when {
+                 expression { env.TestCycle != '' }
+            }
+			
+			steps 
+            {
+				script {
+					try{
+						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						{
+							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+							
+							def cycles = "${env.TestCycle}".split(',')
+							for (cycle in cycles) {							
+								RunPowershellCommand(".\\RunAzureTests.ps1" +
+									" -testLocation '${location}'" +
+									" -DistroIdentifier 'bsdfun'" +
+									" -testCycle '${cycle}'" +
+									" -OsVHD '${osVHD}'" +
+									" -StorageAccount 'ExistingStorage_Standard'" +
+									" -customSecretsFilePath '${SecretsFilePath}'"
+									)
+								}
+						}
+						else
+						{
+							println "Build kernel failed or OsVHD not found, so skip the test."
+						}	
+						
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
 		
 	}
 
