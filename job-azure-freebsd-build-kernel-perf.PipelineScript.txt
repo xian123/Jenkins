@@ -1,6 +1,4 @@
 
-
-
 import java.text.SimpleDateFormat
 
 //def SpecifiedFreebsdARMImage = "${env.SpecifiedFreebsdARMImage}"
@@ -26,11 +24,12 @@ pipeline
 		booleanParam(defaultValue: true, description: 'BUILD KERNEL.', name: 'BUILD_KERNEL')
 		string(defaultValue: '', description: 'The vhd name in azure', name: 'OsVHD')
 		string(defaultValue: '', description: 'The test cycle name of functional test.', name: 'TestCycle')
-		booleanParam(defaultValue: false, description: 'Fio single disk test.', name: 'FIO_1Disk')
-		booleanParam(defaultValue: true, description: 'Fio x12 disks (RAID0) test.', name: 'FIO_12Disks')
-		booleanParam(defaultValue: false, description: 'Sio single disk test.', name: 'SIO_1Disk')
+		booleanParam(defaultValue: true, description: 'Fio single disk test.', name: 'FIO_1Disk')
+		booleanParam(defaultValue: false, description: 'Fio x12 disks (RAID0) test.', name: 'FIO_12Disks')
+		booleanParam(defaultValue: true, description: 'Sio single disk test.', name: 'SIO_1Disk')
 		booleanParam(defaultValue: false, description: 'Sio x12 disks (RAID0) test.', name: 'SIO_12Disks')
-		booleanParam(defaultValue: false, description: 'KQ perf test.', name: 'KQ_Perf')
+		booleanParam(defaultValue: true, description: 'KQ perf test.', name: 'KQ_Perf')
+		booleanParam(defaultValue: true, description: 'Net perf test.', name: 'Net_Perf')
 		choice(choices: 'disabled\nenabled\nboth', description: 'Provide SRIOV state for tests: enabled, disabled or both.', name: 'sriov')
 		choice(choices: 'eastus2\naustraliaeast\nsoutheastasia\nwestcentralus\neastus', description: 'Data center location.', name: 'location')
     }
@@ -323,6 +322,46 @@ pipeline
 							println "Build kernel failed or OsVHD not found, so skip the test."
 						}	
 						
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "STAGE_FAILED_EXCEPTION."
+					}
+
+				}
+			}
+		
+		}
+		
+		
+		stage('Net_Perf dependencies') {
+            when {
+                expression { env.Net_Perf.contains('true') }
+            }
+			
+			steps 
+            {
+				script {
+					try{
+						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						{
+							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
+							RunPowershellCommand(".\\RunAzureTests.ps1" +
+								" -testLocation '${location}'" +
+								" -DistroIdentifier 'bsdnetperf'" +
+								" -testCycle 'PERF-NETWORK-LATENCY'" +
+								" -OsVHD '${osVHD}'" +
+								" -StorageAccount 'ExistingStorage_Standard'" +
+								" -customSecretsFilePath '${SecretsFilePath}'"  +
+								" -ResultDBTable 'Perf_FreeBSD_Azure_NetPerf'"
+								)
+						}
+						else
+						{
+							println "Build kernel failed or OsVHD not found, so skip the test."
+						}	
+			
 					}
 					catch (exc)
 					{

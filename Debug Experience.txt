@@ -1,0 +1,53 @@
+
+Jenkins User Documentation:
+https://jenkins.io/doc/
+
+Pipeline Syntax:
+https://jenkins.io/doc/book/pipeline/syntax/
+
+
+
+1. Output the exception, e.g:
+try {
+	// Do what you want
+} catch (exc) {
+	echo    'EXCEPTION with error: ' + exc.toString()
+	// or 
+	println "EXCEPTION with error: " + exc.toString()
+} finally {
+	// Do what you want
+}
+
+2. A variable in a stage is a local one. 
+   A global variable is defined at the front of the pipeline script.
+
+3. One of the reasons groovy.lang.MissingPropertyException: is thrown 
+   when you are using a variable outside of its scope or you haven't defined that variable.
+
+4. Case sensitive. Pay attention to your spelling especially when you define a variable and use the variable.
+
+5. If you want to abort your program on exception, you can use pipeline step error to stop the pipeline execution with an error. Example :
+try {
+  // Some pipeline code
+} catch(Exception e) {
+   // Do something with the exception 
+
+   error "Program failed, please read logs..."
+}
+
+If you want to stop your pipeline with a success status, 
+you probably want to have some kind of boolean indicating that your pipeline has to be stopped, e.g:
+boolean continuePipeline = true
+try {
+  // Some pipeline code
+} catch(Exception e) {
+   // Do something with the exception 
+
+   continuePipeline = false
+   currentBuild.result = 'SUCCESS'
+}
+
+if(continuePipeline) {
+   // The normal end of your pipeline if exception is not caught. 
+}
+
