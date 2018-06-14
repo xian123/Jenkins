@@ -1,0 +1,181 @@
+AllDistroList = ['FreebsdCurrent', 'FreebsdStable11', 'FreebsdStable10']
+
+def PowerShell(AllDistroList, psCmd) {
+   
+   if("${DistroName}" == 'All')
+   {
+       for (int i = 0; i < AllDistroList.size(); i++) {
+            echo "${AllDistroList[i]}"
+            if ("${AllDistroList[i]}" == "FreebsdCurrent")
+            {
+                branch = "master"
+            }
+            else if ("${AllDistroList[i]}" == "FreebsdStable11")
+            {
+                branch = "stable/11"
+            }
+            else if ("${AllDistroList[i]}" == "FreebsdStable10")
+            {
+                branch = "stable/10"
+            }
+            echo "${BuildKernel}"
+            if("${BuildKernel}" == 'false')
+            {
+                branch = ""
+                withEnv(["VMName=${AllDistroList[i]}", "GitBranch=${branch}", "SoureCodeURL=${branch}"])
+                {
+                    psCmd=psCmd.replaceAll("%", "%%")
+                    bat "powershell.exe -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$psCmd;EXIT \$global:LastExitCode\""
+                }
+            }
+            else
+            {
+                withEnv(["VMName=${AllDistroList[i]}", "GitBranch=${branch}"])
+                {
+                    psCmd=psCmd.replaceAll("%", "%%")
+                    bat "powershell.exe -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$psCmd;EXIT \$global:LastExitCode\""
+                }
+            }
+        }
+   }
+   else
+   {
+        if ("${DistroName}" == "FreebsdCurrent")
+        {
+            branch = "master"
+        }
+        else if ("${DistroName}" == "FreebsdStable11")
+        {
+            branch = "stable/11"
+        }
+        else if ("${DistroName}" == "FreebsdStable10")
+        {
+            branch = "stable/10"
+        }
+
+        if("${BuildKernel}" == 'false')
+        {
+            branch = ""
+            withEnv(["VMName=${DistroName}", "GitBranch=${branch}", "SoureCodeURL=${branch}"])
+            {
+                psCmd=psCmd.replaceAll("%", "%%")
+                bat "powershell.exe -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$psCmd;EXIT \$global:LastExitCode\""
+            }
+        }
+        else
+        {
+            withEnv(["VMName=${DistroName}", "GitBranch=${branch}"])
+            {
+                psCmd=psCmd.replaceAll("%", "%%")
+                bat "powershell.exe -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$psCmd;EXIT \$global:LastExitCode\""
+            }
+        }
+   }
+}
+
+pipeline {
+	agent any	
+	stages {
+		stage("Get code") {
+			parallel {
+            	stage("WS2012 Codes") {
+					agent { node { label '43f23-36' }}
+					steps {
+						script {
+							def ci_exists = fileExists 'CI'
+							if (!ci_exists){
+								new File('CI').mkdir()
+							}
+							dir ('CI') {
+								cleanWs()
+								git poll: false, changelog: false, url: 'https://github.com/xian123/CITest.git', branch: 'dev'                        
+							}
+							
+							def BIS_exists = fileExists 'BIS'
+							if (!BIS_exists){
+								new File('BIS').mkdir()
+							}
+							dir ('BIS') {
+								cleanWs()
+								git poll: false, changelog: false, url: 'https://github.com/Xian123/BIS.git', branch: 'dev'               
+							}					   
+					    }
+					}
+				}
+				stage("WS2012R2 Codes") {
+					agent { node { label 'lis-f1605' }}
+					steps {
+						script {
+							def ci_exists = fileExists 'CI'
+							if (!ci_exists){
+								new File('CI').mkdir()
+							}
+							dir ('CI') {
+								cleanWs()
+								git poll: false, changelog: false, url: 'https://github.com/xian123/CITest.git', branch: 'dev'                        
+							}
+							
+							def BIS_exists = fileExists 'BIS'
+							if (!BIS_exists){
+								new File('BIS').mkdir()
+							}
+							dir ('BIS') {
+								cleanWs()
+								git poll: false, changelog: false, url: 'https://github.com/Xian123/BIS.git', branch: 'dev'               
+							}					   
+					    }
+					}
+				}
+				stage("WS2016 Codes") {
+					agent { node { label 'lis-f2324' }}
+					steps {
+						script {
+							def ci_exists = fileExists 'CI'
+							if (!ci_exists){
+								new File('CI').mkdir()
+							}
+							dir ('CI') {
+								cleanWs()
+								git poll: false, changelog: false, url: 'https://github.com/xian123/CITest.git', branch: 'dev'                        
+							}
+							
+							def BIS_exists = fileExists 'BIS'
+							if (!BIS_exists){
+								new File('BIS').mkdir()
+							}
+							dir ('BIS') {
+								cleanWs()
+								git poll: false, changelog: false, url: 'https://github.com/Xian123/BIS.git', branch: 'dev'               
+							}					   
+					    }
+					}
+				}
+			}
+		}
+		stage("Testing") {
+			parallel {
+            	stage("BIS2012 Tests") {
+					agent { node { label '43f23-36' }}
+					steps {
+						PowerShell(AllDistroList, ". './CI/CI_BIS.ps1'") 
+					}
+				}
+                
+                stage("WS2012R2 Tests") {
+					agent { node { label 'lis-f1605' }}
+					steps {
+						PowerShell(AllDistroList, ". './CI/CI_BIS.ps1'") 
+					}
+				}
+
+                stage("WS2016 Tests") {
+					agent { node { label 'lis-f2324' }}
+					steps {
+						PowerShell(AllDistroList, ". './CI/CI_BIS.ps1'") 
+					}
+				}
+
+			}
+		}
+	}
+}
