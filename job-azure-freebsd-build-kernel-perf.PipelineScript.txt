@@ -1,17 +1,16 @@
 
 import java.text.SimpleDateFormat
 
-//def SpecifiedFreebsdARMImage = "${env.SpecifiedFreebsdARMImage}"
-def SpecifiedFreebsdARMImage = "MicrosoftOSTC FreeBSD 11.1 latest"
-
-
+def BuildBranch = "${env.Build_Branch}"
 def osVHD = "${env.OsVHD}"
-//def testCycle = "${env.TestCycle}"
 def location = "${env.location}"
 def isBuildKernelSuccess = ""
 def SecretsFilePath = "C:/DoNotDelete/secretsFile.xml"
-			   
-					   
+def List<String>DataPaths = new ArrayList<String>()
+def List<String>imagesToBeBuilt = new ArrayList<String>()
+def List<String>branchesToBeBuilt = new ArrayList<String>()
+def List<String>osVHDToBeTested = new ArrayList<String>()
+
 def RunPowershellCommand(psCmd) {
 	println "${psCmd}"
     bat "powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$psCmd;EXIT \$global:LastExitCode\""
@@ -32,6 +31,7 @@ pipeline
 		booleanParam(defaultValue: true, description: 'Net perf test.', name: 'Net_Perf')
 		choice(choices: 'disabled\nenabled\nboth', description: 'Provide SRIOV state for tests: enabled, disabled or both.', name: 'sriov')
 		choice(choices: 'eastus2\naustraliaeast\nsoutheastasia\nwestcentralus\neastus', description: 'Data center location.', name: 'location')
+		choice(choices: 'ALL\nmaster\nstable/10\nstable/11', description: 'The branch to be built. ALL means the master, stable/10 and stable/11 branchs are all built.', name: 'Build_Branch')
     }
 
     agent {
@@ -43,6 +43,87 @@ pipeline
 
 	
 	stages{	
+		stage('Prepare test parameters') {
+			steps 
+            {
+				script {
+					try{
+						// Prepare the image(s) and branch(es) which will be built.
+						if( "${env.Build_Branch}" == 'master' )
+						{
+							imagesToBeBuilt.add('MicrosoftOSTC FreeBSD 11.1 latest')
+							branchesToBeBuilt.add('master')
+						}
+						
+						if( "${env.Build_Branch}" == 'stable/10' )
+						{
+							imagesToBeBuilt.add('MicrosoftOSTC FreeBSD 10.4 latest')
+							branchesToBeBuilt.add('stable/10')
+						}
+						
+						if( "${env.Build_Branch}" == 'stable/11' )
+						{
+							imagesToBeBuilt.add('MicrosoftOSTC FreeBSD 11.1 latest')
+							branchesToBeBuilt.add('stable/11')
+						}
+					
+						if( "${env.Build_Branch}" == 'ALL' )
+						{
+							imagesToBeBuilt.add('MicrosoftOSTC FreeBSD 11.1 latest')
+							imagesToBeBuilt.add('MicrosoftOSTC FreeBSD 11.1 latest')
+							imagesToBeBuilt.add('MicrosoftOSTC FreeBSD 10.4 latest')
+							
+							branchesToBeBuilt.add('master')
+							branchesToBeBuilt.add('stable/11')
+							branchesToBeBuilt.add('stable/10')
+						}
+
+						// Prepare the DataPath for network perf test.
+					    if( env.sriov.contains('disabled')  ) 
+					    {
+							DataPaths.add('Synthetic')
+					    }
+					   
+					    if( env.sriov.contains('enabled')  ) 
+					    {
+							DataPaths.add('Sriov')
+					    }
+					   
+					    if( env.sriov.contains('both')  ) 
+						{
+							DataPaths.add('Synthetic')
+							DataPaths.add('Sriov')
+					    }
+						
+						// Prepare the osVHD which will be built.
+						if( osVHD )
+						{
+							osVHDToBeTested.add("${osVHD}")						
+						}
+						
+						println "The branch(es) to be tested as shown as below:"
+						for (int i = 0; i < branchesToBeBuilt.size(); i++) {
+							println "${branchesToBeBuilt[i]}"
+						}
+						
+						println "The DataPath(s) to be tested as shown as below:"
+						for (int i = 0; i < DataPaths.size(); i++) {
+							println "${DataPaths[i]}"
+						}
+						
+					}
+					catch (exc)
+					{
+						currentBuild.result = 'FAILURE'
+						println "Prepare test parameters STAGE_FAILED_EXCEPTION with error: " + exc.toString()
+					}
+
+				}
+			}
+		
+		}
+	
+	
 		stage('Build kernel dependencies') {
             when {
                 expression { env.BUILD_KERNEL.contains('true') }
@@ -52,60 +133,52 @@ pipeline
             {
 				script {
 					try{
-						if( !osVHD )
-						{
-							def dateFormat = new SimpleDateFormat("yyyyMMddHHmmss")
-							def date = new Date()
-							if( SpecifiedFreebsdARMImage.contains('10.3') )
+						def dateFormat = new SimpleDateFormat("yyyyMMddHHmmss")
+						def date = new Date()
+						
+						for (int i = 0; i < branchesToBeBuilt.size(); i++) {
+							if( "${branchesToBeBuilt[i]}" == 'master' )
 							{
-								osVHD = "FreeBSD103_" + dateFormat.format(date) + ".vhd"
+								osVHD = "FreeBSD" + "_master_" + dateFormat.format(date) + ".vhd"
 							}
 							
-							if( SpecifiedFreebsdARMImage.contains('10.4') )
+							if( "${branchesToBeBuilt[i]}" == 'stable/11' )
 							{
-								osVHD = "FreeBSD104_" + dateFormat.format(date) + ".vhd"
+								osVHD = "FreeBSD" + "_stable11_" + dateFormat.format(date) + ".vhd"
 							}
-					
-							if( SpecifiedFreebsdARMImage.contains('11.0') )
+							
+							if( "${branchesToBeBuilt[i]}" == 'stable/10' )
 							{
-								osVHD = "FreeBSD110_" + dateFormat.format(date) + ".vhd"
+								osVHD = "FreeBSD" + "_stable10_" + dateFormat.format(date) + ".vhd"
 							}
-					
-							if( SpecifiedFreebsdARMImage.contains('11.1') )
-							{
-								osVHD = "FreeBSD111_" + dateFormat.format(date) + ".vhd"
-							}
-					
-					
-							println "The osVHD: ${osVHD}"
-						}
-					
-	
-						if( SpecifiedFreebsdARMImage )
-						{
-							println "The os vhd is based on the image: ${SpecifiedFreebsdARMImage}"
+							
+							// Prepare the osVHD(s) which will be built.
+							osVHDToBeTested.add("${osVHD}")
+							
+							println "Image to be built: ${imagesToBeBuilt[i]}"
+							println "Branch to be built: ${branchesToBeBuilt[i]}"
+							println "Blob name: ${osVHD}"
+							
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
 							RunPowershellCommand(".\\RunAzureTests.ps1" +
 								" -testLocation '${location}'" +
-								" -DistroIdentifier 'buildkernel'" +
+								" -DistroIdentifier 'bsdbuildkernel'" +
 								" -testCycle 'BUILD-KERNEL'" +
-								" -ARMImageName '${SpecifiedFreebsdARMImage}'" +
+								" -ARMImageName '${imagesToBeBuilt[i]}'" +
 								" -StorageAccount 'ExistingStorage_Standard'" +
 								" -destBlobName '${osVHD}'" +
+								" -customBISBranch '${branchesToBeBuilt[i]}'" +
 								" -customSecretsFilePath '${SecretsFilePath}'" 
 								)
 							
 							isBuildKernelSuccess = "True"
+						
 						}
-						else
-						{						
-					         //TODO
-					    }
 					}
 					catch (exc)
 					{
 						currentBuild.result = 'FAILURE'
-						println "STAGE_FAILED_EXCEPTION."
+						println "Build kernel EXCEPTION with error: " + exc.toString()
 					}
 
 				}
@@ -122,18 +195,24 @@ pipeline
             {
 				script {
 					try{
-						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						if( isBuildKernelSuccess == 'True' || osVHD )
 						{
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
-							RunPowershellCommand(".\\RunAzureTests.ps1" +
-								" -testLocation '${location}'" +
-								" -DistroIdentifier 'bsdfiosingledisk'" +
-								" -testCycle 'PERF-FIO-SingleDisk'" +
-								" -OsVHD '${osVHD}'" +
-								" -StorageAccount 'ExistingStorage_Premium'" +
-								" -customSecretsFilePath '${SecretsFilePath}'"  +
-								" -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
-								)
+							
+							for (int i = 0; i < osVHDToBeTested.size(); i++) {
+								println "The current test osVHD: ${osVHDToBeTested[i]}"
+								$cmd =  ".\\RunAzureTests.ps1"
+								$cmd += " -testLocation '${location}'"
+								$cmd += " -DistroIdentifier 'bsdfiosingledisk'"
+								$cmd += " -testCycle 'PERF-FIO-SingleDisk'"
+								$cmd += " -OsVHD '${osVHDToBeTested[i]}'"
+								$cmd += " -StorageAccount 'ExistingStorage_Premium'"
+								$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
+								$cmd += " -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
+								
+								RunPowershellCommand($cmd)
+							}
+							
 						}
 						else
 						{
@@ -143,7 +222,7 @@ pipeline
 					catch (exc)
 					{
 						currentBuild.result = 'FAILURE'
-						println "STAGE_FAILED_EXCEPTION."
+						println "Stage FIO_1Disk EXCEPTION with error: " + exc.toString()
 					}
 
 				}
@@ -161,18 +240,23 @@ pipeline
             {
 				script {
 					try{
-						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						if( isBuildKernelSuccess == 'True' || osVHD )
 						{
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
-							RunPowershellCommand(".\\RunAzureTests.ps1" +
-								" -testLocation '${location}'" +
-								" -DistroIdentifier 'bsdfioraid0'" +
-								" -testCycle 'PERF-FIO-RAID0'" +
-								" -OsVHD '${osVHD}'" +
-								" -StorageAccount 'ExistingStorage_Premium'" +
-								" -customSecretsFilePath '${SecretsFilePath}'"  +
-								" -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
-								)
+
+							for (int i = 0; i < osVHDToBeTested.size(); i++) {
+								println "The current test osVHD: ${osVHDToBeTested[i]}"
+								$cmd =  ".\\RunAzureTests.ps1"
+								$cmd += " -testLocation '${location}'"
+								$cmd += " -DistroIdentifier 'bsdfioraid0'"
+								$cmd += " -testCycle 'PERF-FIO-RAID0'"
+								$cmd += " -OsVHD '${osVHDToBeTested[i]}'"
+								$cmd += " -StorageAccount 'ExistingStorage_Premium'"
+								$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
+								$cmd += " -ResultDBTable 'Perf_FreeBSD_Azure_fio'"
+								
+								RunPowershellCommand($cmd)
+							}
 						}
 						else
 						{
@@ -183,7 +267,7 @@ pipeline
 					catch (exc)
 					{
 						currentBuild.result = 'FAILURE'
-						println "STAGE_FAILED_EXCEPTION."
+						println "Stage FIO_12Disks EXCEPTION with error: " + exc.toString()
 					}
 
 				}
@@ -200,18 +284,23 @@ pipeline
             {
 				script {
 					try{
-						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						if( isBuildKernelSuccess == 'True' || osVHD )
 						{
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
-							RunPowershellCommand(".\\RunAzureTests.ps1" +
-								" -testLocation '${location}'" +
-								" -DistroIdentifier 'bsdSiosingledisk'" +
-								" -testCycle 'PERF-SIO-SingleDisk'" +
-								" -OsVHD '${osVHD}'" +
-								" -StorageAccount 'ExistingStorage_Premium'" +
-								" -customSecretsFilePath '${SecretsFilePath}'"  +
-								" -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
-								)
+								
+							for (int i = 0; i < osVHDToBeTested.size(); i++) {
+								println "The current test osVHD: ${osVHDToBeTested[i]}"
+								$cmd =  ".\\RunAzureTests.ps1"
+								$cmd += " -testLocation '${location}'"
+								$cmd += " -DistroIdentifier 'bsdSiosingledisk'"
+								$cmd += " -testCycle 'PERF-SIO-SingleDisk'"
+								$cmd += " -OsVHD '${osVHDToBeTested[i]}'"
+								$cmd += " -StorageAccount 'ExistingStorage_Premium'"
+								$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
+								$cmd += " -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
+								
+								RunPowershellCommand($cmd)
+							}
 						}
 						else
 						{
@@ -222,7 +311,7 @@ pipeline
 					catch (exc)
 					{
 						currentBuild.result = 'FAILURE'
-						println "STAGE_FAILED_EXCEPTION."
+						println "Stage SIO_1Disk EXCEPTION with error: " + exc.toString()
 					}
 
 				}
@@ -239,18 +328,23 @@ pipeline
             {
 				script {
 					try{
-						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						if( isBuildKernelSuccess == 'True' || osVHD )
 						{
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
-							RunPowershellCommand(".\\RunAzureTests.ps1" +
-								" -testLocation '${location}'" +
-								" -DistroIdentifier 'bsdsioraid0'" +
-								" -testCycle 'PERF-SIO-RAID0'" +
-								" -OsVHD '${osVHD}'" +
-								" -StorageAccount 'ExistingStorage_Premium'" +
-								" -customSecretsFilePath '${SecretsFilePath}'"  +
-								" -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
-								)
+								
+							for (int i = 0; i < osVHDToBeTested.size(); i++) {
+								println "The current test osVHD: ${osVHDToBeTested[i]}"
+								$cmd =  ".\\RunAzureTests.ps1"
+								$cmd += " -testLocation '${location}'"
+								$cmd += " -DistroIdentifier 'bsdsioraid0'"
+								$cmd += " -testCycle 'PERF-SIO-RAID0'"
+								$cmd += " -OsVHD '${osVHDToBeTested[i]}'"
+								$cmd += " -StorageAccount 'ExistingStorage_Premium'"
+								$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
+								$cmd += " -ResultDBTable 'Perf_FreeBSD_Azure_Sio'"
+								
+								RunPowershellCommand($cmd)
+							}
 						}
 						else
 						{
@@ -261,7 +355,7 @@ pipeline
 					catch (exc)
 					{
 						currentBuild.result = 'FAILURE'
-						println "STAGE_FAILED_EXCEPTION."
+						println "Stage SIO_12Disks EXCEPTION with error: " + exc.toString()
 					}
 
 				}
@@ -279,43 +373,30 @@ pipeline
             {
 				script {
 					try{
-					    List<String>networkGroups = new ArrayList<String>()
-					    if( env.sriov.contains('disable')  ) 
-					    {
-							networkGroups.add('Synthetic')
-					    }
-					   
-					    if( env.sriov.contains('enabled')  ) 
-					    {
-							networkGroups.add('Sriov')
-					    }
-					   
-					    if( env.sriov.contains('both')  ) 
-						{
-							networkGroups.add('Synthetic')
-							networkGroups.add('Sriov')
-					    }
-					
-						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						if( isBuildKernelSuccess == 'True' || osVHD )
 						{
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
-								
-							for (int i = 0; i < networkGroups.size(); i++) {
-								$cmd =  ".\\RunAzureTests.ps1"
-								$cmd += " -testLocation '${location}'"
-								$cmd += " -DistroIdentifier 'bsdkqperf'"
-								$cmd += " -testCycle 'PERF-KQ'"
-								$cmd += " -OsVHD '${osVHD}'"
-								$cmd += " -StorageAccount 'ExistingStorage_Standard'"
-								$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
-								$cmd += " -ResultDBTable 'Perf_FreeBSD_Azure_KQ'"
-								
-								if(networkGroups[i] == 'Sriov' )
-								{
-									$cmd += " -EnableAcceleratedNetworking"
+							
+							for (int j = 0; j < DataPaths.size(); j++) {
+								for (int i = 0; i < osVHDToBeTested.size(); i++) {
+									println "The current test image: ${osVHDToBeTested[i]}"
+									$cmd =  ".\\RunAzureTests.ps1"
+									$cmd += " -testLocation '${location}'"
+									$cmd += " -DistroIdentifier 'bsdkqperf'"
+									$cmd += " -testCycle 'PERF-KQ'"
+									$cmd += " -OsVHD '${osVHDToBeTested[i]}'"
+									$cmd += " -StorageAccount 'ExistingStorage_Standard'"
+									$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
+									$cmd += " -ResultDBTable 'Perf_FreeBSD_Azure_KQ'"
+									if( "${DataPaths[j]}" == 'Sriov' )
+									{
+										$cmd += " -EnableAcceleratedNetworking"
+									}
+									
+									RunPowershellCommand($cmd)
 								}
-								RunPowershellCommand($cmd)
 							}
+
 						}
 						else
 						{
@@ -326,7 +407,7 @@ pipeline
 					catch (exc)
 					{
 						currentBuild.result = 'FAILURE'
-						println "STAGE_FAILED_EXCEPTION."
+						println "Stage KQ_Perf EXCEPTION with error: " + exc.toString()
 					}
 
 				}
@@ -344,18 +425,29 @@ pipeline
             {
 				script {
 					try{
-						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						if( isBuildKernelSuccess == 'True' || osVHD )
 						{
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
-							RunPowershellCommand(".\\RunAzureTests.ps1" +
-								" -testLocation '${location}'" +
-								" -DistroIdentifier 'bsdnetperf'" +
-								" -testCycle 'PERF-NETWORK-LATENCY'" +
-								" -OsVHD '${osVHD}'" +
-								" -StorageAccount 'ExistingStorage_Standard'" +
-								" -customSecretsFilePath '${SecretsFilePath}'"  +
-								" -ResultDBTable 'Perf_FreeBSD_Azure_NetPerf'"
-								)
+							
+							for (int j = 0; j < DataPaths.size(); j++) {
+								for (int i = 0; i < osVHDToBeTested.size(); i++) {
+									println "The current test image: ${osVHDToBeTested[i]}"
+									$cmd =  ".\\RunAzureTests.ps1"
+									$cmd += " -testLocation '${location}'"
+									$cmd += " -DistroIdentifier 'bsdnetperf'"
+									$cmd += " -testCycle 'PERF-NETWORK-LATENCY'"
+									$cmd += " -OsVHD '${osVHDToBeTested[i]}'"
+									$cmd += " -StorageAccount 'ExistingStorage_Standard'"
+									$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
+									$cmd += " -ResultDBTable 'Perf_FreeBSD_Azure_NetPerf'"
+									if( "${DataPaths[j]}" == 'Sriov' )
+									{
+										$cmd += " -EnableAcceleratedNetworking"
+									}
+									
+									RunPowershellCommand($cmd)
+								}
+							}
 						}
 						else
 						{
@@ -366,7 +458,7 @@ pipeline
 					catch (exc)
 					{
 						currentBuild.result = 'FAILURE'
-						println "STAGE_FAILED_EXCEPTION."
+						println "Stage Net_Perf EXCEPTION with error: " + exc.toString()
 					}
 
 				}
@@ -384,21 +476,25 @@ pipeline
             {
 				script {
 					try{
-						if( isBuildKernelSuccess == 'True' || env.BUILD_KERNEL.contains('false') )
+						if( isBuildKernelSuccess == 'True' || osVHD )
 						{
 							git poll: false, changelog: false, url: 'https://github.com/xian123/azure-linux-automation', branch: 'test'
-							
+
 							def cycles = "${env.TestCycle}".split(',')
 							for (cycle in cycles) {							
-								RunPowershellCommand(".\\RunAzureTests.ps1" +
-									" -testLocation '${location}'" +
-									" -DistroIdentifier 'bsdfun'" +
-									" -testCycle '${cycle}'" +
-									" -OsVHD '${osVHD}'" +
-									" -StorageAccount 'ExistingStorage_Standard'" +
-									" -customSecretsFilePath '${SecretsFilePath}'"
-									)
+								for (int i = 0; i < osVHDToBeTested.size(); i++) {
+									println "The current test osVHD: ${osVHDToBeTested[i]}"
+									$cmd =  ".\\RunAzureTests.ps1"
+									$cmd += " -testLocation '${location}'"
+									$cmd += " -DistroIdentifier 'bsdfunc'"
+									$cmd += " -testCycle '${cycle}'"
+									$cmd += " -OsVHD '${osVHDToBeTested[i]}'"
+									$cmd += " -StorageAccount 'ExistingStorage_Standard'"
+									$cmd += " -customSecretsFilePath '${SecretsFilePath}'"
+									
+									RunPowershellCommand($cmd)
 								}
+							}
 						}
 						else
 						{
@@ -409,7 +505,7 @@ pipeline
 					catch (exc)
 					{
 						currentBuild.result = 'FAILURE'
-						println "STAGE_FAILED_EXCEPTION."
+						println "Stage Function test EXCEPTION with error: " + exc.toString()
 					}
 
 				}
