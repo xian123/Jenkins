@@ -1,0 +1,303 @@
+// NOTE!!! This pipeline script is just a quik example for parallel, it's NOT sure it really works!
+
+
+// Running Multiple Stages in a Parallel Branch: 
+// https://jenkins.io/blog/2018/07/02/whats-new-declarative-piepline-13x-sequential-stages/#running-multiple-stages-in-a-parallel-branch
+
+// Pipeline - Parallel execution of tasks:
+// https://support.cloudbees.com/hc/en-us/articles/230922168-Pipeline-Parallel-execution-of-tasks
+
+// Parallel stages with Declarative Pipeline 1.2:
+// https://jenkins.io/blog/2017/09/25/declarative-1/
+
+
+
+def location = "lis-perf22"
+def raidOption = "${env.RaidOption}"
+def nestedImageUrl = "${env.NestedImageUrl}"
+def sourceOsVHDPath = "${env.SourceOsVHDPath}"
+def List<String>raidOptionsToBeTested = new ArrayList<String>()
+
+
+
+def RunPowershellCommand(psCmd) {
+	println "Command: ${psCmd}"
+	bat "powershell.exe -NonInteractive -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$psCmd;EXIT \$global:LastExitCode\""
+}
+
+def TurnOffAllVMs( ) {
+	$cmd = "Get-VM -ComputerName lis-perf22 | Stop-VM -TurnOff"
+	RunPowershellCommand($cmd)
+}
+
+
+def UpdateTestParameters( String paras) {
+	withCredentials(bindings: [
+		string(credentialsId: 'NestedKVM_User', variable: 'NestedKVM_User'),
+		string(credentialsId: 'NestedKVM_Password', variable: 'NestedKVM_Password'),
+		file(credentialsId: 'AzureCredential', variable: 'AzureCredential')]) {
+			echo "${AzureCredential}"
+			cleanWs()
+			git poll: false, changelog: false, url: "https://github.com/xian123/LISAv2.git", branch: "master"
+	  
+			String command = '.\\Utilities\\UpdateNestedTestParameters.ps1 '
+			command += " -NestedUser '${NestedKVM_User}'"
+			command += " -NestedUserPassword '${NestedKVM_Password}'"
+			command += " -NestedImageUrl '${nestedImageUrl}'"
+			command += paras
+			
+			RunPowershellCommand(command)
+		}
+}
+
+
+
+
+pipeline {
+	parameters {
+		choice(choices: 'No RAID\nRAID in L1\nRAID in L2\nALL', description: 'raid option', name: 'RaidOption')
+		string(defaultValue: "https://xxx.blob.core.windows.net/vhds/xxx.vhd", description: 'nested image url for test', name: 'NestedImageUrl')
+		string(defaultValue: "C:\\Users\\xxx\\test\\xxx.vhd", description: 'The full path of os vhd used for L1 VM.', name: 'SourceOsVHDPath')
+		booleanParam(defaultValue: false, description: 'Enable the multiple disks test against storage perf if it is true.', name: 'Storage_MultiDisks')
+		booleanParam(defaultValue: true, description: 'Enable the single disk test against storage perf if it is true.', name: 'Storage_SingleDisk')
+		booleanParam(defaultValue: true, description: 'Enable the network test', name: 'Network')
+	}
+
+	agent {
+		node {
+			label 'lis-perf22'
+		}
+	}
+
+	stages {
+		stage('Prepare test parameters') {
+			steps {
+				script {
+					if( raidOption!='ALL'){
+						raidOptionsToBeTested.add("${raidOption}")
+					} else {
+						raidOptionsToBeTested.add('No RAID')
+						raidOptionsToBeTested.add('RAID in L1')
+						raidOptionsToBeTested.add('RAID in L2')
+					}
+					
+					for (int i = 0; i < raidOptionsToBeTested.size(); i++) {
+						println "RaidOption: ${raidOptionsToBeTested[i]}"
+					}
+					
+				}
+			}
+		}
+		
+		stage("Test Storage and Network"){
+			parallel {
+				stage("Storage Test") {
+					agent{ label 'lis-perf22'}
+					stages {
+						stage('Single Disk Perf Test of Nested KVM dependencies') {
+							when {
+								expression { env.Storage_SingleDisk.contains('true') && nestedImageUrl.toString().endsWith(".qcow2") }
+							}
+							
+							steps {
+								script {
+									withCredentials(bindings: [
+										file(credentialsId: 'AzureCredential', variable: 'AzureCredential')]) {
+										
+										String testParas =  " -RaidOption 'No RAID'"
+										testParas += " -NestedImageUrl '${nestedImageUrl}'"
+										testParas += " -TestName HYPERV-NESTED-KVM-STORAGE-SINGLE-DISK "
+										UpdateTestParameters(testParas)
+										
+										TurnOffAllVMs()
+										
+										$cmd =  ".\\RunTests.ps1"
+										$cmd += " -TestPlatform 'HyperV'"
+										$cmd += " -testLocation '${location}'"
+										$cmd += " -TestArea 'Nested'"
+										$cmd += " -TestCategory 'Performance'"
+										$cmd += " -TestNames 'HYPERV-NESTED-KVM-STORAGE-SINGLE-DISK'"
+										$cmd += " -OsVHD '${sourceOsVHDPath}'"
+										$cmd += " -DestinationOsVHDPath 'temp'"
+										$cmd += " -RGIdentifier 'nested'"
+										$cmd += " -XMLSecretFile '${AzureCredential}' -UpdateGlobalConfigurationFromSecretsFile"
+										$cmd += " -ResultDBTable 'Nested_HyperV_Storage'"
+										$cmd += " -ResultDBTestTag 'HYPERV-NESTED-KVM-STORAGE-SINGLE-DISK'"
+										
+										RunPowershellCommand($cmd)
+									}
+								}
+							}
+						}
+					
+					
+						stage('Single Disk Perf Test of Nested HyperV dependencies') {
+							when {
+								expression { env.Storage_SingleDisk.contains('true') && ( nestedImageUrl.toString().endsWith(".vhd") ) || ( nestedImageUrl.toString().endsWith(".vhdx") ) }
+							}
+							
+							steps {
+								script {
+									withCredentials(bindings: [
+										file(credentialsId: 'AzureCredential', variable: 'AzureCredential')]) {
+
+										String testParas =  " -RaidOption 'No RAID'"
+										testParas += " -NestedImageUrl '${nestedImageUrl}'"
+										testParas += " -TestName HYPERV-WINDOWS-NESTED-HYPERV-STORAGE-SINGLE-DISK "
+										UpdateTestParameters(testParas)
+
+										TurnOffAllVMs()
+
+										$cmd =  ".\\RunTests.ps1"
+										$cmd += " -TestPlatform 'HyperV'"
+										$cmd += " -testLocation '${location}'"
+										$cmd += " -TestArea 'Storage'"
+										$cmd += " -TestCategory 'Performance'"
+										$cmd += " -TestNames 'HYPERV-WINDOWS-NESTED-HYPERV-STORAGE-SINGLE-DISK'"
+										$cmd += " -OsVHD '${sourceOsVHDPath}'"
+										$cmd += " -DestinationOsVHDPath 'temp'"
+										$cmd += " -RGIdentifier 'nested'"
+									//	$cmd += " -XMLSecretFile '${AzureCredential}' -UpdateGlobalConfigurationFromSecretsFile"
+										$cmd += " -XMLSecretFile 'C:/Users/xxx/test/AzureCredential.xml' -UpdateGlobalConfigurationFromSecretsFile"
+										$cmd += " -ResultDBTable 'Nested_HyperV_Storage'"
+										$cmd += " -ResultDBTestTag 'HYPERV-WINDOWS-NESTED-HYPERV-STORAGE-SINGLE-DISK'"
+										
+										RunPowershellCommand($cmd)
+									}
+								}
+							}
+						}
+					
+					
+					stage('Multiple Disks Perf Test of Nested KVM dependencies') {
+						when {
+							expression { env.Storage_MultiDisks.contains('true') &&  env.Storage_SingleDisk.contains('true') }
+						}
+						
+						steps {
+							script {
+								withCredentials(bindings: [
+									file(credentialsId: 'AzureCredential', variable: 'AzureCredential')]) {
+										for (int i = 0; i < raidOptionsToBeTested.size(); i++) {
+											String testParas =  " -RaidOption '${raidOptionsToBeTested[i]}'"
+											testParas += " -NestedImageUrl '${nestedImageUrl}'"
+											testParas += " -TestName HYPERV-NESTED-KVM-STORAGE-MULTIDISK "
+											UpdateTestParameters(testParas)
+
+											TurnOffAllVMs()
+											
+											$cmd =  ".\\RunTests.ps1"
+											$cmd += " -TestPlatform 'HyperV'"
+											$cmd += " -testLocation '${location}'"
+											$cmd += " -TestArea 'Nested'"
+											$cmd += " -TestCategory 'Performance'"
+											$cmd += " -TestNames 'HYPERV-NESTED-KVM-STORAGE-MULTIDISK'"
+											$cmd += " -OsVHD '${sourceOsVHDPath}'"
+											$cmd += " -DestinationOsVHDPath 'temp'"
+											$cmd += " -RGIdentifier 'nested'"
+											$cmd += " -XMLSecretFile '${AzureCredential}' -UpdateGlobalConfigurationFromSecretsFile"
+											$cmd += " -ResultDBTable 'Nested_HyperV_Storage'"
+											$cmd += " -ResultDBTestTag 'HYPERV-NESTED-KVM-STORAGE-MULTIDISK'"
+											
+											RunPowershellCommand($cmd)
+										}
+
+								}
+							}
+						}
+					}
+					
+					stage('Multiple Disks Perf Test of Nested HyperV dependencies') {
+						when {
+							expression { env.Storage_MultiDisks.contains('true') &&  env.Storage_SingleDisk.contains('true') }
+						}
+						
+						steps {
+							script {
+								withCredentials(bindings: [
+									file(credentialsId: 'AzureCredential', variable: 'AzureCredential')]) {
+										for (int i = 0; i < raidOptionsToBeTested.size(); i++) {
+											String testParas =  " -RaidOption '${raidOptionsToBeTested[i]}'"
+											testParas += " -NestedImageUrl '${nestedImageUrl}'"
+											testParas += " -TestName HYPERV-WINDOWS-NESTED-HYPERV-STORAGE-MULTIDISK"
+											UpdateTestParameters(testParas)
+
+											TurnOffAllVMs()
+											
+											$cmd =  ".\\RunTests.ps1"
+											$cmd += " -TestPlatform 'HyperV'"
+											$cmd += " -testLocation '${location}'"
+											$cmd += " -TestArea 'Storage'"
+											$cmd += " -TestCategory 'Performance'"
+											$cmd += " -TestNames 'HYPERV-WINDOWS-NESTED-HYPERV-STORAGE-MULTIDISK'"
+											$cmd += " -OsVHD '${sourceOsVHDPath}'"
+											$cmd += " -DestinationOsVHDPath 'temp'"
+											$cmd += " -RGIdentifier 'nested'"
+										//	$cmd += " -XMLSecretFile '${AzureCredential}' -UpdateGlobalConfigurationFromSecretsFile"
+											$cmd += " -XMLSecretFile 'C:/Users/xxx/test/AzureCredential.xml' -UpdateGlobalConfigurationFromSecretsFile"
+											$cmd += " -ResultDBTable 'Nested_HyperV_Storage'"
+											$cmd += " -ResultDBTestTag 'HYPERV-WINDOWS-NESTED-HYPERV-STORAGE-MULTIDISK'"
+											
+											RunPowershellCommand($cmd)
+										}
+								}
+							}
+						}
+					}
+				}
+				
+			}
+				
+				stage("Network Test") {
+					agent{ label 'lis-perf22'}
+					stages{
+						stage('Network ') {
+								when {
+									expression { env.Network.contains('true') && nestedImageUrl.toString().endsWith(".vhd") }
+								}
+								
+								steps {
+									script {
+										withCredentials(bindings: [
+											file(credentialsId: 'AzureCredential', variable: 'AzureCredential')]) {
+											
+											String testParas = " -NestedImageUrl '${nestedImageUrl}'"
+											testParas += " -TestName NESTED-KVM-NTTTCP-DIFFERENT-L1-PUBLIC-BRIDGE "
+											UpdateTestParameters(testParas)
+											
+											TurnOffAllVMs()
+											
+											$cmd =  ".\\RunTests.ps1"
+											$cmd += " -TestPlatform 'HyperV'"
+											$cmd += " -testLocation '${location}'"
+											$cmd += " -TestArea 'Nested'"
+											$cmd += " -TestCategory 'Performance'"
+											$cmd += " -TestNames 'NESTED-KVM-NTTTCP-DIFFERENT-L1-PUBLIC-BRIDGE'"
+											$cmd += " -OsVHD '${sourceOsVHDPath}'"
+											$cmd += " -DestinationOsVHDPath 'temp'"
+											$cmd += " -RGIdentifier 'nested'"
+											$cmd += " -XMLSecretFile '${AzureCredential}' -UpdateGlobalConfigurationFromSecretsFile"
+											$cmd += " -ResultDBTable 'Nested_HyperV_Storage'"
+											$cmd += " -ResultDBTestTag 'NESTED-KVM-NTTTCP-DIFFERENT-L1-PUBLIC-BRIDGE'"
+											
+											RunPowershellCommand($cmd)
+										}
+									}
+								}
+						}
+					}
+					
+					
+				
+				}
+			}
+
+		}
+		
+
+		
+		
+	}
+}
+
+

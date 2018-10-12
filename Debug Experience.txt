@@ -51,3 +51,51 @@ if(continuePipeline) {
    // The normal end of your pipeline if exception is not caught. 
 }
 
+
+6. Case sensitive, e.g, "EndsWith" is different "endsWith"
+
+if( image.toString().EndsWith("xxx") )    --- NOT WORK!
+
+if( image.toString().endsWith("xxx") )    ---- WORK
+
+
+7. For cycle, array and dict
+
+def nestedImageUrl = "${env.NestedImageUrl}"
+...
+
+def nestedImages = nestedImageUrl.split(",")				
+for( image in nestedImages )
+{
+	println "The image url is $image"
+	String aa = image.toString()
+	//#DO things
+}
+
+def testList = ["a", "b", "c", "d"]
+def branches = [:] 
+
+for (int i = 0; i < 4 ; i++) {
+       int index=i, branch = i+1
+       stage ("branch_${branch}"){ 
+            branches["branch_${branch}"] = { 
+                node ('label_example'){
+                    sh "echo 'node: ${NODE_NAME},  index: ${index}, i: ${i}, testListVal: " + testList[index] + "'"
+                }
+            }
+      }
+}
+
+parallel branches
+
+
+
+
+
+
+
+
+
+
+
+
